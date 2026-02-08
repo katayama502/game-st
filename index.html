@@ -185,7 +185,35 @@
                 <div id="health-val" class="stat-value">100%</div>
             </div>
         </div>
+        
+        <!-- Mobile Controls (Initially Hidden) -->
+        <div id="mobile-controls" style="display: none; position: absolute; bottom: 30px; left: 0; width: 100%; height: 200px; padding: 0 20px; z-index: 50; justify-content: space-between; align-items: flex-end; pointer-events: none;">
+            
+            <!-- Left: Attack Button -->
+            <div id="attack-btn-area" style="pointer-events: auto;">
+                <div id="attack-btn" style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--neon-pink); background: rgba(255, 0, 234, 0.2); display: flex; justify-content: center; align-items: center; box-shadow: 0 0 15px var(--neon-pink);">
+                    <div style="width: 50px; height: 50px; background: var(--neon-pink); border-radius: 50%; opacity: 0.8;"></div>
+                </div>
+            </div>
+
+            <!-- Right: Joystick -->
+            <div id="joystick-area" style="pointer-events: auto; width: 150px; height: 150px; display: flex; justify-content: center; align-items: center;">
+                <div id="joystick-zone" style="width: 120px; height: 120px; background: rgba(0, 242, 255, 0.1); border: 2px solid var(--neon-blue); border-radius: 50%; position: relative;">
+                    <div id="joystick-knob" style="width: 50px; height: 50px; background: var(--neon-blue); border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; box-shadow: 0 0 15px var(--neon-blue);"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <style>
+            /* Active states for mobile controls */
+            #attack-btn:active, #attack-btn.active {
+                background: rgba(255, 0, 234, 0.5) !important;
+                transform: scale(0.95);
+            }
+        </style>
     </div>
+
 
     <!-- Start Screen -->
     <div id="start-screen" class="overlay">
@@ -244,6 +272,20 @@
             gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
             osc.start(now);
             osc.stop(now + 0.15);
+        } else if (type === 'enemy_shoot') {
+            // Enemy shoot sound (lower pitch)
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(400, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+            gainNode.gain.setValueAtTime(0.08, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now);
+            osc.stop(now + 0.2);
         } else if (type === 'explosion') {
             // Noise burst for explosion
             const bufferSize = audioCtx.sampleRate * 0.3;
@@ -334,11 +376,18 @@
     const gameOverScreen = document.getElementById('game-over-screen');
     const finalScoreElement = document.getElementById('final-score');
 
+    // Mobile Controls
+    const mobileControls = document.getElementById('mobile-controls');
+    const joystickZone = document.getElementById('joystick-zone');
+    const joystickKnob = document.getElementById('joystick-knob');
+    const attackBtn = document.getElementById('attack-btn');
+
     let width, height;
     let gameState = 'START';
     let score = 0;
     let player;
     let bullets = [];
+    let enemyBullets = []; // Enemy projectiles
     let enemies = [];
     let particles = [];
     let powerups = [];
@@ -347,16 +396,26 @@
     let enemySpawnTimer = 0;
     let difficulty = 1;
 
-    // Touch State for Relative Movement
-    let isTouching = false;
-    let lastTouchX = 0;
-    let lastTouchY = 0;
+    // Joystick State
+    let joystickActive = false;
+    let joystickOrigin = { x: 0, y: 0 };
+    let joystickVector = { x: 0, y: 0 }; // Normalized vector (-1 to 1)
+
+    // Touch Attack State
+    let isTouchFiring = false;
 
     function resize() {
         width = container.clientWidth;
         height = container.clientHeight;
         canvas.width = width;
         canvas.height = height;
+        
+        // Show mobile controls on touch devices
+        if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+            mobileControls.style.display = 'flex';
+        } else {
+            mobileControls.style.display = 'none';
+        }
     }
     window.addEventListener('resize', resize);
     resize();
@@ -365,38 +424,72 @@
     window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    // Improved Touch Controls (Relative Movement)
-    canvas.addEventListener('touchstart', e => {
-        if (gameState !== 'PLAYING') return;
-        initAudio(); // Ensure audio context is active on touch
-        isTouching = true;
-        const touch = e.touches[0];
-        lastTouchX = touch.clientX;
-        lastTouchY = touch.clientY;
+    // Joystick Logic (Right Side)
+    joystickZone.addEventListener('touchstart', e => {
         e.preventDefault();
+        initAudio();
+        const touch = e.changedTouches[0];
+        joystickActive = true;
+        joystickOrigin = { x: touch.clientX, y: touch.clientY };
+        
+        // Center knob initially
+        joystickKnob.style.transform = `translate(-50%, -50%)`;
+        joystickKnob.style.left = `${touch.clientX}px`;
+        joystickKnob.style.top = `${touch.clientY}px`;
+        joystickKnob.style.display = 'block';
     }, { passive: false });
 
-    canvas.addEventListener('touchmove', e => {
-        if (!isTouching || gameState !== 'PLAYING') return;
-        const touch = e.touches[0];
-        
-        // Calculate movement delta
-        const dx = touch.clientX - lastTouchX;
-        const dy = touch.clientY - lastTouchY;
-        
-        // Apply delta to player position (with sensitivity multiplier)
-        player.x += dx * 1.2;
-        player.y += dy * 1.2;
-        
-        lastTouchX = touch.clientX;
-        lastTouchY = touch.clientY;
-        
+    joystickZone.addEventListener('touchmove', e => {
+        if (!joystickActive) return;
         e.preventDefault();
+        const touch = e.changedTouches[0];
+        
+        const dx = touch.clientX - joystickOrigin.x;
+        const dy = touch.clientY - joystickOrigin.y;
+        const distance = Math.min(50, Math.hypot(dx, dy));
+        const angle = Math.atan2(dy, dx);
+        
+        const moveX = Math.cos(angle) * distance;
+        const moveY = Math.sin(angle) * distance;
+
+        joystickKnob.style.left = `${joystickOrigin.x + moveX}px`;
+        joystickKnob.style.top = `${joystickOrigin.y + moveY}px`;
+
+        // Normalize vector
+        joystickVector = {
+            x: moveX / 50,
+            y: moveY / 50
+        };
     }, { passive: false });
 
-    canvas.addEventListener('touchend', () => {
-        isTouching = false;
-    });
+    const endJoystick = (e) => {
+        if (!joystickActive) return;
+        e.preventDefault();
+        joystickActive = false;
+        joystickVector = { x: 0, y: 0 };
+        joystickKnob.style.display = 'none';
+    };
+
+    joystickZone.addEventListener('touchend', endJoystick);
+    joystickZone.addEventListener('touchcancel', endJoystick);
+
+    // Attack Button Logic (Left Side)
+    attackBtn.addEventListener('touchstart', e => {
+        e.preventDefault();
+        initAudio(); // Ensure audio context is ready
+        isTouchFiring = true;
+        attackBtn.classList.add('active');
+    }, { passive: false });
+
+    const endAttack = (e) => {
+        e.preventDefault();
+        isTouchFiring = false;
+        attackBtn.classList.remove('active');
+    };
+
+    attackBtn.addEventListener('touchend', endAttack);
+    attackBtn.addEventListener('touchcancel', endAttack);
+
 
     class Player {
         constructor() {
@@ -411,11 +504,23 @@
         }
 
         update(dt) {
+            let dx = 0;
+            let dy = 0;
+
             // Keyboard Movement
-            if (keys['ArrowLeft'] || keys['KeyA']) this.x -= this.speed;
-            if (keys['ArrowRight'] || keys['KeyD']) this.x += this.speed;
-            if (keys['ArrowUp'] || keys['KeyW']) this.y -= this.speed;
-            if (keys['ArrowDown'] || keys['KeyS']) this.y += this.speed;
+            if (keys['ArrowLeft'] || keys['KeyA']) dx = -1;
+            if (keys['ArrowRight'] || keys['KeyD']) dx = 1;
+            if (keys['ArrowUp'] || keys['KeyW']) dy = -1;
+            if (keys['ArrowDown'] || keys['KeyS']) dy = 1;
+
+            // Combine with Joystick
+            if (joystickActive) {
+                dx = joystickVector.x;
+                dy = joystickVector.y;
+            }
+
+            this.x += dx * this.speed;
+            this.y += dy * this.speed;
 
             // Constraints
             this.x = Math.max(this.radius, Math.min(width - this.radius, this.x));
@@ -424,8 +529,8 @@
             // Shooting logic
             if (this.shootCooldown > 0) this.shootCooldown -= dt;
             
-            // Auto-shoot when touching or holding space
-            if (keys['Space'] || isTouching) {
+            // Shoot when Space or Attack Button held
+            if (keys['Space'] || isTouchFiring) {
                 this.shoot();
             }
         }
@@ -490,6 +595,27 @@
         }
     }
 
+    class EnemyBullet {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.vy = 5; // Downward speed
+            this.radius = 4;
+            this.color = '#ff0000'; // Red bullets for enemies
+        }
+        update() {
+            this.y += this.vy;
+        }
+        draw() {
+            ctx.fillStyle = this.color; // Solid fill
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
     class Enemy {
         constructor() {
             this.radius = 12 + Math.random() * 12;
@@ -499,10 +625,20 @@
             this.health = Math.ceil(difficulty / 2);
             this.color = '#ff00ea';
             this.pulse = 0;
+            this.shootTimer = Math.random() * 2000 + 1000; // Random shoot interval
         }
-        update() {
+        update(dt) {
             this.y += this.speed;
             this.pulse += 0.1;
+
+            // Attack Logic
+            this.shootTimer -= dt;
+            if (this.shootTimer <= 0) {
+                // Fire!
+                enemyBullets.push(new EnemyBullet(this.x, this.y + this.radius));
+                playSound('enemy_shoot');
+                this.shootTimer = Math.random() * 3000 + 1500; // Reset timer
+            }
         }
         draw() {
             ctx.save();
@@ -588,6 +724,7 @@
         difficulty = 1;
         player = new Player();
         bullets = [];
+        enemyBullets = [];
         enemies = [];
         particles = [];
         powerups = [];
@@ -628,8 +765,35 @@
                 if (b.y < -50) bullets.splice(i, 1);
             });
 
+            // Enemy Bullets Logic
+            enemyBullets.forEach((eb, i) => {
+                eb.update();
+                eb.draw();
+
+                // Collision with Player
+                const distToPlayer = Math.hypot(eb.x - player.x, eb.y - player.y);
+                if (distToPlayer < eb.radius + player.radius) {
+                    player.health -= 10; // 10 damage per bullet
+                    playSound('explosion');
+                    spawnExplosion(player.x, player.y, '#ff0000');
+                    screenShake();
+                    enemyBullets.splice(i, 1);
+                    updateHUD();
+
+                    if (player.health <= 0) {
+                        gameState = 'GAMEOVER';
+                        playSound('gameover');
+                        finalScoreElement.textContent = score;
+                        gameOverScreen.style.display = 'flex';
+                    }
+                }
+
+                if (eb.y > height + 50) enemyBullets.splice(i, 1);
+            });
+
+
             enemies.forEach((e, i) => {
-                e.update();
+                e.update(dt);
                 e.draw();
 
                 // Player collision
