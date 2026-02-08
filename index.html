@@ -211,6 +211,120 @@
 </div>
 
 <script>
+    // --- Audio System ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    const soundEnabled = true;
+
+    function playSound(type) {
+        if (!soundEnabled || !audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        if (type === 'shoot') {
+            // Laser pew sound
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+            gainNode.gain.setValueAtTime(0.1, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now);
+            osc.stop(now + 0.15);
+        } else if (type === 'explosion') {
+            // Noise burst for explosion
+            const bufferSize = audioCtx.sampleRate * 0.3;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            const filter = audioCtx.createBiquadFilter();
+            const gainNode = audioCtx.createGain();
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(1000, now);
+            filter.frequency.linearRampToValueAtTime(100, now + 0.3);
+
+            noise.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            gainNode.gain.setValueAtTime(0.2, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            noise.start(now);
+        } else if (type === 'click') {
+            // Mechanical Steampunk Click
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.frequency.setValueAtTime(200, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+            gain.gain.setValueAtTime(0.5, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.type = 'triangle';
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+            osc2.frequency.setValueAtTime(2000, now);
+            gain2.gain.setValueAtTime(0.1, now);
+            gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            osc2.start(now);
+            osc2.stop(now + 0.3);
+        } else if (type === 'gameover') {
+            // System Shutdown & Steam
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.frequency.setValueAtTime(500, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now + 1.5);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.linearRampToValueAtTime(0, now + 1.5);
+            osc.start(now);
+            osc.stop(now + 1.5);
+
+            const bufferSize = audioCtx.sampleRate * 2.0;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            const noiseGain = audioCtx.createGain();
+            noise.connect(noiseGain);
+            noiseGain.connect(audioCtx.destination);
+            
+            noiseGain.gain.setValueAtTime(0, now);
+            noiseGain.gain.linearRampToValueAtTime(0.2, now + 0.2); 
+            noiseGain.gain.linearRampToValueAtTime(0, now + 1.5);
+            noise.start(now);
+        }
+    }
+    // --------------------
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const container = document.getElementById('game-container');
@@ -254,6 +368,7 @@
     // Improved Touch Controls (Relative Movement)
     canvas.addEventListener('touchstart', e => {
         if (gameState !== 'PLAYING') return;
+        initAudio(); // Ensure audio context is active on touch
         isTouching = true;
         const touch = e.touches[0];
         lastTouchX = touch.clientX;
@@ -325,6 +440,7 @@
                     bullets.push(new Bullet(this.x - 10, this.y - 15, -1.5, -bulletSpeed));
                     bullets.push(new Bullet(this.x + 10, this.y - 15, 1.5, -bulletSpeed));
                 }
+                playSound('shoot'); // Play shoot sound
                 this.shootCooldown = 150;
             }
         }
@@ -467,6 +583,7 @@
     }
 
     function resetGame() {
+        initAudio(); // Initialize audio context on game start
         score = 0;
         difficulty = 1;
         player = new Player();
@@ -519,12 +636,14 @@
                 const d = Math.hypot(e.x - player.x, e.y - player.y);
                 if (d < e.radius + player.radius) {
                     player.health -= 25;
+                    playSound('explosion'); // Play collision/damage sound
                     spawnExplosion(e.x, e.y, e.color);
                     screenShake();
                     enemies.splice(i, 1);
                     updateHUD();
                     if (player.health <= 0) {
                         gameState = 'GAMEOVER';
+                        playSound('gameover');
                         finalScoreElement.textContent = score;
                         gameOverScreen.style.display = 'flex';
                     }
@@ -538,6 +657,7 @@
                         bullets.splice(bi, 1);
                         if (e.health <= 0) {
                             score += 100;
+                            playSound('explosion'); // Play destruction sound
                             spawnExplosion(e.x, e.y, e.color);
                             if (Math.random() < 0.08) powerups.push(new PowerUp(e.x, e.y));
                             enemies.splice(i, 1);
@@ -573,6 +693,14 @@
 
     document.getElementById('start-btn').onclick = resetGame;
     document.getElementById('restart-btn').onclick = resetGame;
+
+    // Button click sounds
+    document.querySelectorAll('.btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            playSound('click');
+        });
+    });
+
     requestAnimationFrame(loop);
 </script>
 </body>
