@@ -611,7 +611,7 @@
             this.radius = 15;
             this.speed = 6;
             this.health = 100;
-            this.weaponLevel = 1;
+            this.weaponType = 'normal'; // normal, spread, rocket
             this.shootCooldown = 0;
             this.color = '#00f2ff';
         }
@@ -650,16 +650,24 @@
 
         shoot() {
             if (this.shootCooldown <= 0) {
-                const bulletSpeed = 12;
-                if (this.weaponLevel === 1) {
-                    bullets.push(new Bullet(this.x, this.y - 20, 0, -bulletSpeed));
-                } else {
+                if (this.weaponType === 'rocket') {
+                    bullets.push(new Rocket(this.x, this.y - 20));
+                    playSound('shoot'); // Placeholder sound
+                    this.shootCooldown = 300; // Slower fire rate
+                } else if (this.weaponType === 'spread') {
+                    const bulletSpeed = 12;
                     bullets.push(new Bullet(this.x, this.y - 20, 0, -bulletSpeed));
                     bullets.push(new Bullet(this.x - 10, this.y - 15, -1.5, -bulletSpeed));
                     bullets.push(new Bullet(this.x + 10, this.y - 15, 1.5, -bulletSpeed));
+                    playSound('shoot');
+                    this.shootCooldown = 150;
+                } else {
+                    // Normal
+                    const bulletSpeed = 12;
+                    bullets.push(new Bullet(this.x, this.y - 20, 0, -bulletSpeed));
+                    playSound('shoot');
+                    this.shootCooldown = 150;
                 }
-                playSound('shoot'); // Play shoot sound
-                this.shootCooldown = 150;
             }
         }
 
@@ -691,6 +699,7 @@
             this.y = y;
             this.vx = vx;
             this.vy = vy;
+            this.type = 'bullet';
             this.radius = 3;
             this.color = '#00f2ff';
         }
@@ -705,6 +714,38 @@
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
             ctx.fill();
+        }
+    }
+
+    class Rocket {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.vx = 0;
+            this.vy = -8; // Slower than bullet
+            this.radius = 6;
+            this.color = '#ffaa00';
+            this.type = 'rocket';
+            this.trailTimer = 0;
+        }
+        update() {
+            this.y += this.vy;
+            // Add trail effect
+            this.trailTimer++;
+            if (this.trailTimer % 3 === 0) {
+                particles.push(new Particle(this.x, this.y + 10, '#cc5500'));
+            }
+        }
+        draw() {
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'red';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            // Rocket body
+            ctx.fillStyle = '#555';
+            ctx.fillRect(this.x - 3, this.y, 6, 12);
         }
     }
 
@@ -795,19 +836,46 @@
             this.y = y;
             this.radius = 15;
             this.speed = 2;
+            
+            // Random Type
+            const rand = Math.random();
+            if (rand < 0.4) this.type = 'SPREAD';
+            else if (rand < 0.7) this.type = 'ROCKET';
+            else this.type = 'HEALTH';
         }
+        
         update() { this.y += this.speed; }
+        
         draw() {
             ctx.save();
             ctx.shadowBlur = 20;
-            ctx.shadowColor = '#9d00ff';
-            ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
-            ctx.strokeRect(this.x - 10, this.y - 10, 20, 20);
-            ctx.fillStyle = '#9d00ff';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('W', this.x, this.y + 5);
+            ctx.textBaseline = 'middle';
+            
+            if (this.type === 'SPREAD') {
+                ctx.shadowColor = '#9d00ff';
+                ctx.strokeStyle = '#9d00ff';
+                ctx.strokeRect(this.x - 10, this.y - 10, 20, 20);
+                ctx.fillStyle = '#9d00ff';
+                ctx.fillText('S', this.x, this.y);
+            } else if (this.type === 'ROCKET') {
+                ctx.shadowColor = '#ffaa00';
+                ctx.strokeStyle = '#ffaa00';
+                ctx.strokeRect(this.x - 10, this.y - 10, 20, 20);
+                ctx.fillStyle = '#ffaa00';
+                ctx.fillText('R', this.x, this.y);
+            } else if (this.type === 'HEALTH') {
+                ctx.shadowColor = '#00ff00';
+                ctx.strokeStyle = '#00ff00';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 12, 0, Math.PI*2);
+                ctx.stroke();
+                ctx.fillStyle = '#00ff00';
+                ctx.fillText('+', this.x, this.y + 1);
+            }
+            
             ctx.restore();
         }
     }
@@ -972,7 +1040,14 @@
                     const b = bullets[bi];
                     const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
                     if (dist < boss.radius + b.radius) {
-                        boss.health--;
+                        
+                        let damage = 1;
+                        if (b.type === 'rocket') {
+                            damage = 10;
+                            spawnBossExplosion(b.x, b.y); // Big visual effect
+                        }
+                        
+                        boss.health -= damage;
                         bullets.splice(bi, 1);
                         playSound('explosion'); // Hit sound
                         
@@ -1092,7 +1167,14 @@
                     const b = bullets[bi];
                     const bd = Math.hypot(e.x - b.x, e.y - b.y);
                     if (bd < e.radius + b.radius) {
-                        e.health--;
+                        
+                        let damage = 1;
+                        if (b.type === 'rocket') {
+                            damage = 10;
+                            spawnBossExplosion(e.x, e.y); // reuse boss explosion for big boom
+                        }
+                        
+                        e.health -= damage;
                         bullets.splice(bi, 1);
                         if (e.health <= 0) {
                             score += 100;
@@ -1113,9 +1195,24 @@
                 p.update();
                 p.draw();
                 if (Math.hypot(p.x - player.x, p.y - player.y) < p.radius + player.radius) {
-                    player.weaponLevel = 2;
-                    player.color = 'white';
-                    setTimeout(() => player.color = '#00f2ff', 1000);
+                    
+                    if (p.type === 'SPREAD') {
+                        player.weaponType = 'spread';
+                        player.color = '#9d00ff';
+                    } else if (p.type === 'ROCKET') {
+                        player.weaponType = 'rocket';
+                        player.color = '#ffaa00';
+                    } else if (p.type === 'HEALTH') {
+                        player.health = Math.min(100, player.health + 50);
+                        updateHUD();
+                        playSound('click'); // Reuse positive sound
+                    }
+                    
+                    // Visual feedback
+                    if (p.type !== 'HEALTH') {
+                         setTimeout(() => player.color = '#00f2ff', 500);
+                    }
+                    
                     powerups.splice(i, 1);
                 }
                 if (p.y > height + 50) powerups.splice(i, 1);
