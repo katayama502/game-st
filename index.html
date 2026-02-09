@@ -965,31 +965,45 @@
                 bossHpBar.style.width = `${Math.max(0, hpPercent)}%`;
 
                 // Collision: Player Bullets vs Boss
-                bullets.forEach((b, bi) => {
+                // Use reverse loop to safely remove bullets
+                for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                    if (!boss) break; // Stop checking if boss is dead
+                    
+                    const b = bullets[bi];
                     const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
                     if (dist < boss.radius + b.radius) {
                         boss.health--;
                         bullets.splice(bi, 1);
                         playSound('explosion'); // Hit sound
                         
+                        // Flash boss red
+                        boss.color = '#fff';
+                        setTimeout(() => { if(boss) boss.color = `hsl(${Math.random() * 360}, 100%, 50%)`; }, 50);
+
                         if (boss.health <= 0) {
                             // Boss Defeated
                             score += 5000;
                             bossActive = false;
-                            boss = null;
                             bossHud.style.display = 'none';
                             nextBossScore += 10000;
                             
-                            spawnBossExplosion(boss.x, boss.y); // New Explosion
+                            spawnBossExplosion(boss.x, boss.y); // New Explosion (Use coords before nulling)
+                            
+                            // Essential: Nullify boss AFTER using its coords
+                            const bossX = boss.x;
+                            const bossY = boss.y;
+                            boss = null;
+                            
                             advanceStage(); // Next Stage
                             
                             screenShake();
                             
                             // Clear all bullets
                             enemyBullets = [];
+                            break; // Exit loop immediately since boss is gone
                         }
                     }
-                });
+                }
 
                 // Collision: Boss vs Player
                 if (boss) {
@@ -1014,14 +1028,16 @@
                 }
             }
 
-            bullets.forEach((b, i) => {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
                 b.update();
                 b.draw();
                 if (b.y < -50) bullets.splice(i, 1);
-            });
+            }
 
             // Enemy Bullets Logic
-            enemyBullets.forEach((eb, i) => {
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const eb = enemyBullets[i];
                 eb.update();
                 eb.draw();
 
@@ -1041,13 +1057,15 @@
                         finalScoreElement.textContent = score;
                         gameOverScreen.style.display = 'flex';
                     }
+                    continue; // Skip rest of loop for this bullet
                 }
 
                 if (eb.y > height + 50) enemyBullets.splice(i, 1);
-            });
+            }
 
 
-            enemies.forEach((e, i) => {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
                 e.update(dt);
                 e.draw();
 
@@ -1066,10 +1084,12 @@
                         finalScoreElement.textContent = score;
                         gameOverScreen.style.display = 'flex';
                     }
+                    continue; // Enemy removed, skip bullet checks
                 }
 
                 // Bullet collision
-                bullets.forEach((b, bi) => {
+                for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                    const b = bullets[bi];
                     const bd = Math.hypot(e.x - b.x, e.y - b.y);
                     if (bd < e.radius + b.radius) {
                         e.health--;
@@ -1081,12 +1101,13 @@
                             if (Math.random() < 0.08) powerups.push(new PowerUp(e.x, e.y));
                             enemies.splice(i, 1);
                             updateHUD();
+                            break; // Enemy died, break bullet loop
                         }
                     }
-                });
+                }
 
-                if (e.y > height + 50) enemies.splice(i, 1);
-            });
+                if (e.y > height + 50 && enemies[i] === e) enemies.splice(i, 1); // Check existence
+            }
 
             powerups.forEach((p, i) => {
                 p.update();
