@@ -186,6 +186,14 @@
             </div>
         </div>
         
+        <!-- Boss HP Bar (Hidden by Default) -->
+        <div id="boss-hud" style="display: none; position: absolute; top: 80px; left: 50%; transform: translateX(-50%); width: 80%; z-index: 10;">
+            <div style="color: #ff0000; font-size: 14px; margin-bottom: 5px; text-shadow: 0 0 10px #ff0000; letter-spacing: 2px;">WARNING: BOSS DETECTED</div>
+            <div style="width: 100%; height: 10px; background: rgba(255, 0, 0, 0.2); border: 1px solid #ff0000;">
+                <div id="boss-hp-bar" style="width: 100%; height: 100%; background: #ff0000; box-shadow: 0 0 10px #ff0000; transition: width 0.2s;"></div>
+            </div>
+        </div>
+        
         <!-- Mobile Controls (Initially Hidden) -->
         <div id="mobile-controls" style="display: none; position: absolute; bottom: 120px; left: 0; width: 100%; height: 200px; padding: 0 20px; z-index: 50; justify-content: space-between; align-items: flex-end; pointer-events: none;">
             
@@ -395,6 +403,16 @@
     let lastTime = 0;
     let enemySpawnTimer = 0;
     let difficulty = 1;
+    let stage = 1;
+    
+    // Stage Backgrounds
+    const stageBackgrounds = [
+        'radial-gradient(circle at center, #111 0%, #000 100%)', // Stage 1 (Default)
+        'linear-gradient(to bottom, #000000, #0f2027, #203a43, #2c5364)', // Stage 2: Deep Blue/City
+        'linear-gradient(to bottom, #3e0000, #1a0000, #000000)', // Stage 3: Red/Mars
+        'radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%)', // Stage 4: Space
+        'linear-gradient(45deg, #1a1a1a, #2a2a2a)' // Stage 5+: Dark Industrial
+    ];
 
     // Joystick State
     let joystickActive = false;
@@ -403,6 +421,101 @@
 
     // Touch Attack State
     let isTouchFiring = false;
+
+    // Boss State
+    let boss = null;
+    let bossActive = false;
+    let nextBossScore = 10000;
+    const bossHud = document.getElementById('boss-hud');
+    const bossHpBar = document.getElementById('boss-hp-bar');
+
+    class Boss {
+        constructor() {
+            this.radius = 40;
+            this.x = width / 2;
+            this.y = -100;
+            this.targetY = 150;
+            this.speed = 2;
+            this.vx = 2;
+            this.maxHealth = 40; // Needs significant hits
+            this.health = this.maxHealth;
+            this.color = '#ff0000';
+            this.shootTimer = 0;
+            this.moveTimer = 0;
+            this.angle = 0;
+        }
+
+        update(dt) {
+            // Entry animation
+            if (this.y < this.targetY) {
+                this.y += this.speed;
+            } else {
+                // Normal movement
+                this.moveTimer -= dt;
+                if (this.moveTimer <= 0) {
+                    this.vx = (Math.random() - 0.5) * 6;
+                    this.moveTimer = 1000 + Math.random() * 2000;
+                }
+                
+                this.x += this.vx;
+                if (this.x < this.radius || this.x > width - this.radius) {
+                    this.vx *= -1;
+                    this.x = Math.max(this.radius, Math.min(width - this.radius, this.x));
+                }
+
+                this.y = this.targetY + Math.sin(Date.now() / 500) * 30;
+            }
+
+            // Attack
+            this.shootTimer -= dt;
+            if (this.shootTimer <= 0) {
+                this.fire();
+                this.shootTimer = 800 + Math.random() * 1000;
+            }
+        }
+
+        fire() {
+             playSound('enemy_shoot');
+             const numBullets = 5 + Math.floor(Math.random() * 5);
+             const startAngle = Math.atan2(player.y - this.y, player.x - this.x);
+             
+             for(let i = 0; i < numBullets; i++) {
+                 const spread = (i - Math.floor(numBullets/2)) * 0.2;
+                 const angle = startAngle + spread;
+                 const bx = Math.cos(angle) * 5;
+                 const by = Math.sin(angle) * 5;
+                 
+                 const b = new EnemyBullet(this.x, this.y);
+                 b.radius = 6;
+                 b.vx = bx;
+                 b.vy = by;
+                 b.update = function() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                 };
+                 enemyBullets.push(b);
+             }
+        }
+
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = this.color;
+            ctx.fillStyle = this.color;
+            
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner styling
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
 
     function resize() {
         width = container.clientWidth;
@@ -622,13 +735,29 @@
             this.x = Math.random() * (width - this.radius * 2) + this.radius;
             this.y = -this.radius * 2;
             this.speed = (2 + Math.random() * 2) * (1 + (difficulty * 0.1));
+            this.vx = (Math.random() - 0.5) * 3; // Horizontal movement
             this.health = Math.ceil(difficulty / 2);
             this.color = '#ff00ea';
             this.pulse = 0;
             this.shootTimer = Math.random() * 2000 + 1000; // Random shoot interval
+            this.changeDirTimer = Math.random() * 1000 + 500;
         }
         update(dt) {
             this.y += this.speed;
+            this.x += this.vx;
+
+            // Bounce off walls
+            if (this.x < this.radius || this.x > width - this.radius) {
+                this.vx *= -1;
+            }
+
+            // Randomly change direction
+            this.changeDirTimer -= dt;
+            if (this.changeDirTimer <= 0) {
+                this.vx = (Math.random() - 0.5) * 4;
+                this.changeDirTimer = Math.random() * 1000 + 500;
+            }
+
             this.pulse += 0.1;
 
             // Attack Logic
@@ -713,6 +842,58 @@
         for (let i = 0; i < 15; i++) particles.push(new Particle(x, y, color));
     }
 
+    function spawnBossExplosion(x, y) {
+        // Massive explosion
+        for (let i = 0; i < 100; i++) {
+            const p = new Particle(x, y, `hsl(${Math.random() * 60 + 10}, 100%, 50%)`); // Fire colors
+            p.vx *= 3; // Much faster/further
+            p.vy *= 3;
+            p.life = 2.0; // Lasts longer
+            particles.push(p);
+        }
+        
+        // Shockwave effect (simulated with particles for now)
+        for (let i = 0; i < 36; i++) {
+            const angle = (i * 10) * Math.PI / 180;
+            const p = new Particle(x, y, '#ffffff');
+            p.vx = Math.cos(angle) * 8;
+            p.vy = Math.sin(angle) * 8;
+            p.life = 1.5;
+            particles.push(p);
+        }
+    }
+
+    function advanceStage() {
+        stage++;
+        const bgIndex = Math.min(stage - 1, stageBackgrounds.length - 1);
+        container.style.background = stageBackgrounds[bgIndex];
+        
+        // Visual notification
+        const stageNotice = document.createElement('div');
+        stageNotice.textContent = `STAGE ${stage}`;
+        stageNotice.style.position = 'absolute';
+        stageNotice.style.top = '40%';
+        stageNotice.style.left = '50%';
+        stageNotice.style.transform = 'translate(-50%, -50%) scale(0)';
+        stageNotice.style.color = '#fff';
+        stageNotice.style.fontSize = '48px';
+        stageNotice.style.fontWeight = 'bold';
+        stageNotice.style.textShadow = '0 0 20px #fff';
+        stageNotice.style.transition = 'all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+        stageNotice.style.pointerEvents = 'none';
+        stageNotice.style.zIndex = '100'; // On top of everything
+        container.appendChild(stageNotice);
+
+        // Animate in
+        requestAnimationFrame(() => {
+            stageNotice.style.transform = 'translate(-50%, -50%) scale(1)';
+            setTimeout(() => {
+                stageNotice.style.opacity = '0';
+                setTimeout(() => stageNotice.remove(), 1000);
+            }, 2000);
+        });
+    }
+
     function screenShake() {
         container.classList.add('shake');
         setTimeout(() => container.classList.remove('shake'), 200);
@@ -722,12 +903,20 @@
         initAudio(); // Initialize audio context on game start
         score = 0;
         difficulty = 1;
+        stage = 1;
+        container.style.background = stageBackgrounds[0];
         player = new Player();
         bullets = [];
         enemyBullets = [];
         enemies = [];
         particles = [];
         powerups = [];
+        // Reset Boss
+        boss = null;
+        bossActive = false;
+        nextBossScore = 10000; // Reset threshold
+        bossHud.style.display = 'none';
+
         gameState = 'PLAYING';
         startScreen.style.display = 'none';
         gameOverScreen.style.display = 'none';
@@ -753,10 +942,76 @@
 
             difficulty = 1 + Math.floor(score / 3000);
 
-            enemySpawnTimer += dt;
-            if (enemySpawnTimer > Math.max(350, 1000 - (difficulty * 80))) {
-                enemies.push(new Enemy());
-                enemySpawnTimer = 0;
+            // Boss Spawning Logic
+            if (score >= nextBossScore && !bossActive) {
+                bossActive = true;
+                boss = new Boss();
+                // Randomize Boss Stats Scaling
+                boss.maxHealth = 40 + (difficulty * 10);
+                boss.health = boss.maxHealth;
+                // Randomize Boss Appearance
+                boss.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+                
+                bossHud.style.display = 'block';
+                playSound('gameover'); // Use as alarm sound
+            }
+
+            if (bossActive && boss) {
+                boss.update(dt);
+                boss.draw();
+
+                // Update HP Bar
+                const hpPercent = (boss.health / boss.maxHealth) * 100;
+                bossHpBar.style.width = `${Math.max(0, hpPercent)}%`;
+
+                // Collision: Player Bullets vs Boss
+                bullets.forEach((b, bi) => {
+                    const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
+                    if (dist < boss.radius + b.radius) {
+                        boss.health--;
+                        bullets.splice(bi, 1);
+                        playSound('explosion'); // Hit sound
+                        
+                        if (boss.health <= 0) {
+                            // Boss Defeated
+                            score += 5000;
+                            bossActive = false;
+                            boss = null;
+                            bossHud.style.display = 'none';
+                            nextBossScore += 10000;
+                            
+                            spawnBossExplosion(boss.x, boss.y); // New Explosion
+                            advanceStage(); // Next Stage
+                            
+                            screenShake();
+                            
+                            // Clear all bullets
+                            enemyBullets = [];
+                        }
+                    }
+                });
+
+                // Collision: Boss vs Player
+                if (boss) {
+                    const dist = Math.hypot(boss.x - player.x, boss.y - player.y);
+                    if (dist < boss.radius + player.radius) {
+                        player.health -= 1; // Constant contact damage
+                        if (player.health <= 0) {
+                            gameState = 'GAMEOVER';
+                            playSound('gameover');
+                            finalScoreElement.textContent = score;
+                            gameOverScreen.style.display = 'flex';
+                        }
+                        updateHUD();
+                    }
+                }
+            } else {
+                // Normal Enemy Spawning (Only when no boss)
+                enemySpawnTimer += dt;
+                if (enemySpawnTimer > Math.max(350, 1000 - (difficulty * 80))) {
+                    enemies.push(new Enemy());
+                    enemySpawnTimer = 0;
+                }
             }
 
             bullets.forEach((b, i) => {
