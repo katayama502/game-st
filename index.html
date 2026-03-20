@@ -42,6 +42,23 @@
             box-shadow: 0 0 50px rgba(0, 242, 255, 0.2);
             overflow: hidden;
             background: radial-gradient(circle at center, #111 0%, #000 100%);
+            transition: all 0.3s ease;
+        }
+
+        #game-container:fullscreen {
+            max-width: none;
+            max-height: none;
+            width: 100vw;
+            height: 100vh;
+            box-shadow: none;
+        }
+
+        #game-container:-webkit-full-screen {
+            max-width: none;
+            max-height: none;
+            width: 100vw;
+            height: 100vh;
+            box-shadow: none;
         }
 
         canvas {
@@ -228,6 +245,7 @@
         <h1>NEON STRIKE</h1>
         <p>Cybernetic space combat protocol initiated.<br>Protect the grid from the recursive virus.</p>
         <button id="start-btn" class="btn">Initiate Mission</button>
+        <button id="fullscreen-btn" class="btn" style="margin-top: 15px; font-size: 14px; padding: 10px 25px; border-color: var(--neon-purple); color: var(--neon-purple); display: none;">Fullscreen Mode</button>
         <div class="controls-hint">
             PC: WASD to Move | Space to Shoot<br>
             Mobile: Swipe to Move & Auto-Shoot
@@ -517,6 +535,8 @@
         }
     }
 
+    const fullscreenBtn = document.getElementById('fullscreen-btn');
+
     function resize() {
         width = container.clientWidth;
         height = container.clientHeight;
@@ -526,12 +546,45 @@
         // Show mobile controls on touch devices
         if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
             mobileControls.style.display = 'flex';
+            fullscreenBtn.style.display = 'none';
         } else {
             mobileControls.style.display = 'none';
+            fullscreenBtn.style.display = 'inline-block';
         }
     }
     window.addEventListener('resize', resize);
     resize();
+
+    // Fullscreen Logic
+    fullscreenBtn.addEventListener('click', () => {
+        initAudio();
+        if (!document.fullscreenElement) {
+            container.requestFullscreen().catch(err => {
+                console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+                // Basic fallback for browsers that don't support requestFullscreen on the container
+                alert("Fullscreen request failed. Your browser might not support it for this element.");
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+        if (document.fullscreenElement) {
+            fullscreenBtn.textContent = 'Exit Fullscreen';
+            fullscreenBtn.style.borderColor = 'var(--neon-pink)';
+            fullscreenBtn.style.color = 'var(--neon-pink)';
+        } else {
+            fullscreenBtn.textContent = 'Fullscreen Mode';
+            fullscreenBtn.style.borderColor = 'var(--neon-purple)';
+            fullscreenBtn.style.color = 'var(--neon-purple)';
+        }
+        // Use a slight timeout to ensure dimensions are updated
+        setTimeout(resize, 100);
+    });
+
+    // Also trigger resize when the button is clicked to ensure layout updates
+    fullscreenBtn.addEventListener('mouseup', () => setTimeout(resize, 300));
 
     // Input handling
     window.addEventListener('keydown', e => keys[e.code] = true);
